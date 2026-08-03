@@ -1,0 +1,19 @@
+name: FoConvertors
+description: Flexible and lightweight convertor system
+version: '${version}'
+
+main: me.foesio.foConvertors.FoConvertors
+api-version: '1.21'
+
+authors: [ Carrotio ]
+softdepend: [ FoAutoCollect ]
+
+commands:
+  foconvertors:
+    description: Main command for FoConvertors
+    usage: /<command> <version|editor|give|reload>
+    aliases: [convertors]
+permissions:
+  foconvertors.admin:
+    description: Access to FoConvertors admin commands and editor
+    default: op

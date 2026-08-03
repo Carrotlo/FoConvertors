@@ -1,0 +1,14 @@
+# Need help or want support? Join the Discord: https://discord.gg/kEF77QCfu7
+
+settings:
+  # Sends a chat message when players enable/disable a convertor.
+  send-toggle-message: true
+  # If true, only a convertor held in offhand can auto-convert.
+  require-offhand-convertor: false
+  # Maximum recipe conversions per inventory processing pass.
+  max-conversions-per-pass: 64
+  # Milliseconds between toggle attempts.
+  toggle-cooldown-ms: 100
+  # Which clicks toggle convertors while holding them.
+  # Options: left, right, both
+  toggle-click-mode: both
