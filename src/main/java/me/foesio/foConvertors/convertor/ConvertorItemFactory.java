@@ -3,9 +3,9 @@ package me.foesio.foConvertors.convertor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import me.foesio.core.item.FoItemStacks;
 import me.foesio.core.message.FoMessageService;
-import me.foesio.core.text.FoText;
 import me.foesio.foConvertors.config.PluginSettings;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -23,6 +23,9 @@ public final class ConvertorItemFactory {
     private final ConvertorRegistry registry;
     private final FoMessageService messages;
     private final PluginSettings settings;
+    private String enabledStatusLore;
+    private String disabledStatusLore;
+    private String toggleLore;
 
     public ConvertorItemFactory(JavaPlugin plugin, ConvertorRegistry registry, FoMessageService messages, PluginSettings settings) {
         this.convertorMarkerKey = new NamespacedKey(plugin, "is_convertor");
@@ -31,6 +34,23 @@ public final class ConvertorItemFactory {
         this.registry = registry;
         this.messages = messages;
         this.settings = settings;
+        reloadLoreTemplates();
+    }
+
+    public void reloadLoreTemplates() {
+        enabledStatusLore = messages.render(
+                "convertor-item.status-enabled",
+                "{white}Status: {success}Enabled"
+        );
+        disabledStatusLore = messages.render(
+                "convertor-item.status-disabled",
+                "{white}Status: {bad}Disabled"
+        );
+        toggleLore = messages.render(
+                "convertor-item.toggle",
+                "{white}Toggle: {theme}{mode} {white}while holding.",
+                Map.of("mode", settings.getToggleClickMode().getLabel())
+        );
     }
 
     public ItemStack createConvertorItem(ConvertorTemplate template, boolean enabled) {
@@ -53,19 +73,12 @@ public final class ConvertorItemFactory {
 
         List<String> lore = new ArrayList<>();
         if (meta.hasLore()) {
-            for (String line : meta.getLore()) {
-                lore.add(messages.renderTemplate("{white}" + stripColor(line), java.util.Collections.emptyMap()));
-            }
+            lore.addAll(meta.getLore());
         }
 
         lore.add(messages.renderTemplate("{white} ", java.util.Collections.emptyMap()));
-        lore.add(messages.renderTemplate(
-                enabled
-                        ? "{white}Status: {success}Enabled"
-                        : "{white}Status: {bad}Disabled",
-                java.util.Collections.emptyMap()
-        ));
-        lore.add(messages.renderTemplate("{white}Toggle: {theme}" + settings.getToggleClickMode().getLabel() + " {white}while holding.", java.util.Collections.emptyMap()));
+        lore.add(enabled ? enabledStatusLore : disabledStatusLore);
+        lore.add(toggleLore);
 
         meta.setLore(lore);
 
@@ -146,10 +159,6 @@ public final class ConvertorItemFactory {
             return id;
         }
         return Character.toUpperCase(base.charAt(0)) + base.substring(1);
-    }
-
-    private static String stripColor(String input) {
-        return FoText.stripColor(input);
     }
 
     public record ConvertorItemData(String templateId, boolean enabled) {

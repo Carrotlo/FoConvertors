@@ -72,6 +72,7 @@ public final class FoConvertors extends JavaPlugin {
                 .add("config", settings::reload)
                 .add("dialog foundation", this::refreshCoreContext)
                 .addMessages(messages)
+                .add("convertor item messages", itemFactory::reloadLoreTemplates)
                 .add("convertor templates", registry::reload);
 
         FoConvertorsCommand commandHandler = new FoConvertorsCommand(

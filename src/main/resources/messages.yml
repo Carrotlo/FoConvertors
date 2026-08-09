@@ -32,6 +32,11 @@ toggle:
   disabled: "{prefix}{bad}Convertor {theme}{id} {bad}disabled."
   cooldown: "{prefix}{muted}Please wait {theme}{remaining}ms {muted}before toggling again."
 
+convertor-item:
+  status-enabled: "{white}Status: {success}Enabled"
+  status-disabled: "{white}Status: {bad}Disabled"
+  toggle: "{white}Toggle: {theme}{mode} {white}while holding."
+
 editor:
   not-found: "{prefix}{bad}Convertor template not found: {theme}{id}"
   enter-id: "{prefix}{muted}Type the new convertor id in chat ({theme}a-z, 0-9, _, -{muted}) or type {theme}cancel{muted}."

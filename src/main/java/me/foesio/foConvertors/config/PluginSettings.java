@@ -65,7 +65,7 @@ public final class PluginSettings {
             return switch (this) {
                 case LEFT -> "left-click";
                 case RIGHT -> "right-click";
-                case BOTH -> "left-click or right-click";
+                case BOTH -> "Click";
             };
         }
 
