@@ -2,7 +2,6 @@ package me.foesio.foConvertors.gui;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,6 +22,10 @@ import me.foesio.core.editor.EditorItemFactory;
 import me.foesio.core.gui.GuiButtonConfig;
 import me.foesio.core.gui.GuiSlots;
 import me.foesio.core.gui.GuiTitles;
+import me.foesio.core.gui.EntryBrowserClick;
+import me.foesio.core.gui.EntryBrowserHolder;
+import me.foesio.core.gui.EntryBrowserMenus;
+import me.foesio.core.gui.EntryBrowserRequest;
 import me.foesio.core.item.FoItemStacks;
 import me.foesio.core.message.FoStyle;
 import me.foesio.core.message.FoMessageService;
@@ -62,7 +65,6 @@ public final class EditorManager implements Listener {
     private static final int SLOT_DEFAULT_ENABLED = 31;
     private static final int SLOT_DELETE = 48;
     private static final int SLOT_BACK = GuiSlots.bottomMiddleSlot(6);
-    private static final int SLOT_CREATE = 45;
     private static final int SLOT_DECOR_LEFT = 21;
     private static final int SLOT_DECOR_RIGHT = 23;
     private static final int SLOT_CONFIRM = 11;
@@ -76,6 +78,8 @@ public final class EditorManager implements Listener {
 
     private final Set<UUID> awaitingCreateId = ConcurrentHashMap.newKeySet();
     private final Map<UUID, AmountInputState> awaitingAmountInput = new ConcurrentHashMap<>();
+    private final Map<UUID, BrowserSearchState> awaitingBrowserSearch = new ConcurrentHashMap<>();
+    private final Map<UUID, BrowserState> browserStates = new ConcurrentHashMap<>();
     private final Set<UUID> warnedNativeDialogFallback = ConcurrentHashMap.newKeySet();
 
     public EditorManager(
@@ -93,38 +97,203 @@ public final class EditorManager implements Listener {
     }
 
     public void openList(Player player) {
-        String title = GuiTitles.format("Convertors Editor");
+        openTemplateBrowser(player, "", 0);
+    }
 
+    private void openTemplateBrowser(Player player, String filter, int page) {
+        String normalizedFilter = normalizeFilter(filter);
         List<ConvertorTemplate> templates = new ArrayList<>(registry.all());
         templates.sort((left, right) -> left.getId().compareToIgnoreCase(right.getId()));
+        List<EntryBrowserRequest.Entry> entries = templates.stream()
+                .filter(template -> matchesFilter(template.getId(), normalizedFilter))
+                .map(template -> EntryBrowserRequest.Entry.of(template.getId(), buildTemplateIcon(template)))
+                .toList();
 
-        Map<Integer, String> slotToId = new LinkedHashMap<>();
-        GuiHolder holder = GuiHolder.list(slotToId);
-        Inventory inventory = Bukkit.createInventory(holder, 54, title);
-        int slot = 0;
-        for (ConvertorTemplate template : templates) {
-            if (slot >= 45) {
-                break;
-            }
+        browserStates.put(player.getUniqueId(), new BrowserState(BrowserType.TEMPLATES, null));
+        EntryBrowserMenus.open(player, EntryBrowserRequest.builder()
+                .title("Convertors Editor")
+                .entries(entries)
+                .page(page)
+                .filter(normalizedFilter)
+                .buttons(BUTTONS)
+                .addButton(createMenuItem(
+                        Material.ANVIL,
+                        "{theme}Create Convertor",
+                        List.of(
+                                "{white}Click to create a new convertor template.",
+                                "{white}You will enter the template id in chat."
+                        )
+                ))
+                .build());
+    }
 
-            slotToId.put(slot, template.getId());
-            inventory.setItem(slot, buildTemplateIcon(template));
-            slot++;
+    private void openBrowserForState(Player player, BrowserState state, String filter, int page) {
+        if (state.type == BrowserType.TEMPLATES) {
+            openTemplateBrowser(player, filter, page);
+        } else {
+            openRecipeBrowser(player, state.templateId, filter, page);
+        }
+    }
+
+    private void openRecipeBrowser(Player player, String templateId, String filter, int page) {
+        ConvertorTemplate template = registry.get(templateId);
+        if (template == null) {
+            messages.send(player, "editor.not-found", Map.of("id", templateId));
+            openList(player);
+            return;
         }
 
-        fillBottomRow(inventory);
+        String normalizedFilter = normalizeFilter(filter);
+        List<ConvertorRecipe> recipes = new ArrayList<>(template.getRecipes());
+        recipes.sort((left, right) -> left.getId().compareToIgnoreCase(right.getId()));
+        List<EntryBrowserRequest.Entry> entries = recipes.stream()
+                .filter(recipe -> matchesFilter(recipe.getId(), normalizedFilter))
+                .map(recipe -> EntryBrowserRequest.Entry.of(recipe.getId(), buildRecipeIcon(recipe)))
+                .toList();
 
-        inventory.setItem(SLOT_CREATE, createMenuItem(
-                Material.LIME_DYE,
-                "{theme}Create Convertor",
-                List.of(
-                        "{white}Click to create a new convertor template.",
-                        "{white}You will enter the template id in chat."
-                )
-        ));
-
-        player.openInventory(inventory);
+        browserStates.put(player.getUniqueId(), new BrowserState(BrowserType.RECIPES, template.getId()));
+        EntryBrowserMenus.open(player, EntryBrowserRequest.builder()
+                .title("Recipes: " + template.getId())
+                .entries(entries)
+                .page(page)
+                .filter(normalizedFilter)
+                .buttons(BUTTONS)
+                .showBack(true)
+                .addButton(createMenuItem(
+                        Material.ANVIL,
+                        "{theme}Add Recipe",
+                        List.of("{white}Create a new input/output recipe.")
+                ))
+                .build());
     }
+
+    private void addRecipe(Player player, String templateId) {
+        ConvertorTemplate template = registry.get(templateId);
+        if (template == null) {
+            messages.send(player, "editor.not-found", Map.of("id", templateId));
+            openList(player);
+            return;
+        }
+
+        ConvertorRecipe recipe = ConvertorRecipe.createDefault(template.nextRecipeId());
+        template.addRecipe(recipe);
+        registry.save(template);
+        messages.send(player, "editor.recipe-created", Map.of("recipe", recipe.getId()));
+        openRecipeEditor(player, template.getId(), recipe.getId());
+    }
+
+    private static String normalizeFilter(String filter) {
+        return filter == null ? "" : filter.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean matchesFilter(String id, String filter) {
+        return filter.isBlank() || id.toLowerCase(Locale.ROOT).contains(filter);
+    }
+
+    private void handleEntryBrowserClick(Player player, int slot, EntryBrowserHolder holder) {
+        BrowserState state = browserStates.get(player.getUniqueId());
+        if (state == null) {
+            return;
+        }
+
+        EntryBrowserClick click = EntryBrowserMenus.handleClick(slot, holder);
+        String filter = holder.request().filter();
+        switch (click.action()) {
+            case ENTRY -> {
+                if (state.type == BrowserType.TEMPLATES) {
+                    openEditor(player, click.entryId());
+                } else {
+                    openRecipeEditor(player, state.templateId, click.entryId());
+                }
+            }
+            case ADD -> {
+                if (state.type == BrowserType.TEMPLATES) {
+                    openCreateIdInput(player);
+                } else {
+                    addRecipe(player, state.templateId);
+                }
+            }
+            case BACK -> {
+                if (state.type == BrowserType.RECIPES) {
+                    openEditor(player, state.templateId);
+                }
+            }
+            case SEARCH -> openBrowserSearch(player, state, filter);
+            case CLEAR_SEARCH -> {
+                messages.send(player, "editor.search-cleared");
+                openBrowserForState(player, state, "", 0);
+            }
+            case PREVIOUS_PAGE -> openBrowserForState(player, state, filter, holder.request().page() - 1);
+            case NEXT_PAGE -> openBrowserForState(player, state, filter, holder.request().page() + 1);
+            case NONE -> {
+                // Filler and inactive navigation slots intentionally do nothing.
+            }
+        }
+    }
+
+    private void openBrowserSearch(Player player, BrowserState state, String currentFilter) {
+        awaitingCreateId.remove(player.getUniqueId());
+        awaitingAmountInput.remove(player.getUniqueId());
+        BrowserSearchState searchState = new BrowserSearchState(state.type, state.templateId, normalizeFilter(currentFilter));
+        awaitingBrowserSearch.put(player.getUniqueId(), searchState);
+        TextDialogRequest request = new TextDialogRequest(
+                "Search",
+                List.of(FoStyle.MUTED + "Filter entries by id."),
+                FoStyle.WHITE + "Search",
+                searchState.currentFilter,
+                "entry id",
+                DialogButton.search("Search", "", 100),
+                DialogButton.cancel("Cancel", "", 100),
+                300,
+                300,
+                32,
+                true,
+                false,
+                false
+        );
+        openEditorTextInput(
+                player,
+                request,
+                input -> handleNativeBrowserSearchInput(player, searchState, input),
+                () -> {
+                    awaitingBrowserSearch.remove(player.getUniqueId());
+                    messages.send(player, "editor.search-cancelled");
+                    openBrowserForState(player, state, searchState.currentFilter, 0);
+                },
+                () -> openBrowserSearchChatFallback(player, searchState)
+        );
+    }
+
+    private void openBrowserSearchChatFallback(Player player, BrowserSearchState state) {
+        awaitingBrowserSearch.put(player.getUniqueId(), state);
+        player.closeInventory();
+        messages.send(player, "editor.enter-search", Map.of("current", state.currentFilter.isBlank() ? "none" : state.currentFilter));
+    }
+
+    private void handleNativeBrowserSearchInput(Player player, BrowserSearchState state, String input) {
+        awaitingBrowserSearch.remove(player.getUniqueId());
+        String filter = normalizeFilter(input);
+        if (filter.equals("cancel")) {
+            messages.send(player, "editor.search-cancelled");
+            openBrowserForState(player, new BrowserState(state.type, state.templateId), state.currentFilter, 0);
+            return;
+        }
+        if (filter.isBlank()) {
+            messages.send(player, "editor.search-cleared");
+        } else {
+            messages.send(player, "editor.search-applied", Map.of("query", filter));
+        }
+        openBrowserForState(player, new BrowserState(state.type, state.templateId), filter, 0);
+    }
+
+    private void openRecipeList(Player player, String templateId) {
+        openRecipeBrowser(player, templateId, "", 0);
+    }
+
+    /*
+     * The editor itself remains a plugin-owned screen. Only the two entry-list
+     * surfaces above use the shared browser so pagination and search stay uniform.
+     */
 
     public void openEditor(Player player, String templateId) {
         ConvertorTemplate template = registry.get(templateId);
@@ -172,40 +341,6 @@ public final class EditorManager implements Listener {
                 )
         ));
 
-        inventory.setItem(SLOT_BACK, BUTTONS.back());
-
-        player.openInventory(inventory);
-    }
-
-    private void openRecipeList(Player player, String templateId) {
-        ConvertorTemplate template = registry.get(templateId);
-        if (template == null) {
-            messages.send(player, "editor.not-found", Map.of("id", templateId));
-            openList(player);
-            return;
-        }
-
-        String title = GuiTitles.format("Recipes: " + template.getId());
-        Map<Integer, String> slotToRecipeId = new LinkedHashMap<>();
-        Inventory inventory = Bukkit.createInventory(GuiHolder.recipeList(template.getId(), slotToRecipeId), 54, title);
-
-        int slot = 0;
-        for (ConvertorRecipe recipe : template.getRecipes()) {
-            if (slot >= 45) {
-                break;
-            }
-
-            slotToRecipeId.put(slot, recipe.getId());
-            inventory.setItem(slot, buildRecipeIcon(recipe));
-            slot++;
-        }
-
-        fillBottomRow(inventory);
-        inventory.setItem(SLOT_CREATE, createMenuItem(
-                Material.LIME_DYE,
-                "{theme}Add Recipe",
-                List.of("{white}Create a new input/output recipe.")
-        ));
         inventory.setItem(SLOT_BACK, BUTTONS.back());
 
         player.openInventory(inventory);
@@ -331,22 +466,32 @@ public final class EditorManager implements Listener {
             return;
         }
 
-        GuiHolder holder = getHolder(event.getView().getTopInventory());
-        if (holder == null) {
-            return;
-        }
-
         if (event.getClickedInventory() == null) {
             return;
         }
 
+        Inventory topInventory = event.getView().getTopInventory();
         int topSize = event.getView().getTopInventory().getSize();
+        InventoryHolder topHolder = topInventory.getHolder();
+        if (topHolder instanceof EntryBrowserHolder entryBrowserHolder) {
+            if (event.getRawSlot() < topSize) {
+                event.setCancelled(true);
+                handleEntryBrowserClick(player, event.getSlot(), entryBrowserHolder);
+            } else if (event.isShiftClick()) {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        GuiHolder holder = getHolder(topInventory);
+        if (holder == null) {
+            return;
+        }
+
         if (event.getRawSlot() < topSize) {
             event.setCancelled(true);
             switch (holder.type) {
-                case LIST -> handleListClick(player, event.getSlot(), holder);
                 case TEMPLATE -> handleTemplateClick(player, event, holder.templateId);
-                case RECIPE_LIST -> handleRecipeListClick(player, event.getSlot(), holder);
                 case RECIPE -> handleRecipeClick(player, event, holder.templateId, holder.recipeId);
                 case CONFIRM_DELETE_TEMPLATE -> handleConfirmTemplateClick(player, event.getSlot(), holder.templateId);
                 case CONFIRM_DELETE_RECIPE -> handleConfirmRecipeClick(player, event.getSlot(), holder.templateId, holder.recipeId);
@@ -365,7 +510,19 @@ public final class EditorManager implements Listener {
             return;
         }
 
-        GuiHolder holder = getHolder(event.getView().getTopInventory());
+        Inventory topInventory = event.getView().getTopInventory();
+        if (topInventory.getHolder() instanceof EntryBrowserHolder) {
+            int topSize = topInventory.getSize();
+            for (int rawSlot : event.getRawSlots()) {
+                if (rawSlot < topSize) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+            return;
+        }
+
+        GuiHolder holder = getHolder(topInventory);
         if (holder == null) {
             return;
         }
@@ -384,6 +541,30 @@ public final class EditorManager implements Listener {
         UUID uuid = event.getPlayer().getUniqueId();
         String rawInput = event.getMessage().trim();
         String normalizedInput = rawInput.toLowerCase(Locale.ROOT);
+
+        BrowserSearchState searchState = awaitingBrowserSearch.get(uuid);
+        if (searchState != null) {
+            event.setCancelled(true);
+            awaitingBrowserSearch.remove(uuid);
+            runForPlayer(event.getPlayer(), () -> {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player == null || !player.isOnline()) {
+                    return;
+                }
+                if (normalizedInput.equals("cancel")) {
+                    messages.send(player, "editor.search-cancelled");
+                    openBrowserForState(player, new BrowserState(searchState.type, searchState.templateId), searchState.currentFilter, 0);
+                    return;
+                }
+                if (normalizedInput.isBlank()) {
+                    messages.send(player, "editor.search-cleared");
+                } else {
+                    messages.send(player, "editor.search-applied", Map.of("query", normalizedInput));
+                }
+                openBrowserForState(player, new BrowserState(searchState.type, searchState.templateId), normalizedInput, 0);
+            });
+            return;
+        }
 
         if (awaitingCreateId.contains(uuid)) {
             event.setCancelled(true);
@@ -488,19 +669,9 @@ public final class EditorManager implements Listener {
         UUID uuid = event.getPlayer().getUniqueId();
         awaitingCreateId.remove(uuid);
         awaitingAmountInput.remove(uuid);
+        awaitingBrowserSearch.remove(uuid);
+        browserStates.remove(uuid);
         warnedNativeDialogFallback.remove(uuid);
-    }
-
-    private void handleListClick(Player player, int slot, GuiHolder holder) {
-        if (slot == SLOT_CREATE) {
-            openCreateIdInput(player);
-            return;
-        }
-
-        String templateId = holder.slotToTemplateId.get(slot);
-        if (templateId != null) {
-            openEditor(player, templateId);
-        }
     }
 
     private void handleTemplateClick(Player player, InventoryClickEvent event, String templateId) {
@@ -549,34 +720,6 @@ public final class EditorManager implements Listener {
             return;
         }
 
-    }
-
-    private void handleRecipeListClick(Player player, int slot, GuiHolder holder) {
-        ConvertorTemplate template = registry.get(holder.templateId);
-        if (template == null) {
-            messages.send(player, "editor.not-found", Map.of("id", holder.templateId));
-            openList(player);
-            return;
-        }
-
-        if (slot == SLOT_CREATE) {
-            ConvertorRecipe recipe = ConvertorRecipe.createDefault(template.nextRecipeId());
-            template.addRecipe(recipe);
-            registry.save(template);
-            messages.send(player, "editor.recipe-created", Map.of("recipe", recipe.getId()));
-            openRecipeEditor(player, template.getId(), recipe.getId());
-            return;
-        }
-
-        if (slot == SLOT_BACK) {
-            openEditor(player, template.getId());
-            return;
-        }
-
-        String recipeId = holder.slotToRecipeId.get(slot);
-        if (recipeId != null) {
-            openRecipeEditor(player, template.getId(), recipeId);
-        }
     }
 
     private void handleRecipeClick(Player player, InventoryClickEvent event, String templateId, String recipeId) {
@@ -1113,45 +1256,27 @@ public final class EditorManager implements Listener {
         private final SessionType type;
         private final String templateId;
         private final String recipeId;
-        private final Map<Integer, String> slotToTemplateId;
-        private final Map<Integer, String> slotToRecipeId;
 
-        private GuiHolder(
-                SessionType type,
-                String templateId,
-                String recipeId,
-                Map<Integer, String> slotToTemplateId,
-                Map<Integer, String> slotToRecipeId
-        ) {
+        private GuiHolder(SessionType type, String templateId, String recipeId) {
             this.type = type;
             this.templateId = templateId;
             this.recipeId = recipeId;
-            this.slotToTemplateId = slotToTemplateId;
-            this.slotToRecipeId = slotToRecipeId;
-        }
-
-        private static GuiHolder list(Map<Integer, String> slotToTemplateId) {
-            return new GuiHolder(SessionType.LIST, null, null, slotToTemplateId, Collections.emptyMap());
         }
 
         private static GuiHolder template(String templateId) {
-            return new GuiHolder(SessionType.TEMPLATE, templateId, null, Collections.emptyMap(), Collections.emptyMap());
-        }
-
-        private static GuiHolder recipeList(String templateId, Map<Integer, String> slotToRecipeId) {
-            return new GuiHolder(SessionType.RECIPE_LIST, templateId, null, Collections.emptyMap(), slotToRecipeId);
+            return new GuiHolder(SessionType.TEMPLATE, templateId, null);
         }
 
         private static GuiHolder recipe(String templateId, String recipeId) {
-            return new GuiHolder(SessionType.RECIPE, templateId, recipeId, Collections.emptyMap(), Collections.emptyMap());
+            return new GuiHolder(SessionType.RECIPE, templateId, recipeId);
         }
 
         private static GuiHolder confirmTemplate(String templateId) {
-            return new GuiHolder(SessionType.CONFIRM_DELETE_TEMPLATE, templateId, null, Collections.emptyMap(), Collections.emptyMap());
+            return new GuiHolder(SessionType.CONFIRM_DELETE_TEMPLATE, templateId, null);
         }
 
         private static GuiHolder confirmRecipe(String templateId, String recipeId) {
-            return new GuiHolder(SessionType.CONFIRM_DELETE_RECIPE, templateId, recipeId, Collections.emptyMap(), Collections.emptyMap());
+            return new GuiHolder(SessionType.CONFIRM_DELETE_RECIPE, templateId, recipeId);
         }
 
         @Override
@@ -1161,12 +1286,21 @@ public final class EditorManager implements Listener {
     }
 
     private enum SessionType {
-        LIST,
         TEMPLATE,
-        RECIPE_LIST,
         RECIPE,
         CONFIRM_DELETE_TEMPLATE,
         CONFIRM_DELETE_RECIPE
+    }
+
+    private enum BrowserType {
+        TEMPLATES,
+        RECIPES
+    }
+
+    private record BrowserState(BrowserType type, String templateId) {
+    }
+
+    private record BrowserSearchState(BrowserType type, String templateId, String currentFilter) {
     }
 
     private enum AmountType {

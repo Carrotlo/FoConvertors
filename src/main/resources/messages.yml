@@ -40,6 +40,10 @@ convertor-item:
 editor:
   not-found: "{prefix}{bad}Convertor template not found: {theme}{id}"
   enter-id: "{prefix}{muted}Type the new convertor id in chat ({theme}a-z, 0-9, _, -{muted}) or type {theme}cancel{muted}."
+  enter-search: "{prefix}{muted}Type an entry id filter in chat (current: {theme}{current}{muted}) or type {theme}cancel{muted}."
+  search-applied: "{prefix}{success}Entry search applied: {theme}{query}{success}."
+  search-cleared: "{prefix}{muted}Entry search cleared."
+  search-cancelled: "{prefix}{muted}Entry search cancelled."
   invalid-id: "{prefix}{bad}Invalid id. Use 3-32 chars: a-z, 0-9, _, -"
   already-exists: "{prefix}{bad}Convertor {theme}{id} {bad}already exists."
   created: "{prefix}{success}Created convertor template {theme}{id}{success}."
