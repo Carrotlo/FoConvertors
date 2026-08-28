@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import me.foesio.core.message.FoMessageService;
+import me.foesio.core.sound.FoSoundService;
 import me.foesio.foConvertors.config.PluginSettings;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory.ConvertorItemData;
@@ -24,18 +25,21 @@ public final class ConvertorToggleListener implements Listener {
     private final PluginSettings settings;
     private final FoMessageService messages;
     private final AutoConvertListener autoConvertListener;
+    private final FoSoundService sounds;
     private final Map<UUID, Long> lastToggleMillis = new ConcurrentHashMap<>();
 
     public ConvertorToggleListener(
             ConvertorItemFactory itemFactory,
             PluginSettings settings,
             FoMessageService messages,
-            AutoConvertListener autoConvertListener
+            AutoConvertListener autoConvertListener,
+            FoSoundService sounds
     ) {
         this.itemFactory = itemFactory;
         this.settings = settings;
         this.messages = messages;
         this.autoConvertListener = autoConvertListener;
+        this.sounds = sounds;
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -99,6 +103,7 @@ public final class ConvertorToggleListener implements Listener {
                 long remaining = Math.max(1L, cooldownMs - (now - lastToggle));
                 messages.send(player, "toggle.cooldown", Map.of("remaining", String.valueOf(remaining)));
             }
+            sounds.play(player, "convertor.error");
             return true;
         }
 
@@ -119,6 +124,8 @@ public final class ConvertorToggleListener implements Listener {
                     Map.of("id", data.templateId() == null ? "unknown" : data.templateId())
             );
         }
+
+        sounds.playWithPitchVariation(player, nowEnabled ? "convertor.enabled" : "convertor.disabled", 0.05f);
 
         if (nowEnabled) {
             autoConvertListener.requestProcess(player);

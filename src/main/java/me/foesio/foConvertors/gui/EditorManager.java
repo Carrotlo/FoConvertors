@@ -29,6 +29,7 @@ import me.foesio.core.gui.EntryBrowserRequest;
 import me.foesio.core.item.FoItemStacks;
 import me.foesio.core.message.FoStyle;
 import me.foesio.core.message.FoMessageService;
+import me.foesio.core.sound.FoEditorSounds;
 import me.foesio.core.text.FoText;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory;
 import me.foesio.foConvertors.convertor.ConvertorRecipe;
@@ -75,6 +76,7 @@ public final class EditorManager implements Listener {
     private final ConvertorItemFactory itemFactory;
     private final FoMessageService messages;
     private final Supplier<FoCoreContext> coreSupplier;
+    private final FoEditorSounds editorSounds;
 
     private final Set<UUID> awaitingCreateId = ConcurrentHashMap.newKeySet();
     private final Map<UUID, AmountInputState> awaitingAmountInput = new ConcurrentHashMap<>();
@@ -87,13 +89,15 @@ public final class EditorManager implements Listener {
             ConvertorRegistry registry,
             ConvertorItemFactory itemFactory,
             FoMessageService messages,
-            Supplier<FoCoreContext> coreSupplier
+            Supplier<FoCoreContext> coreSupplier,
+            FoEditorSounds editorSounds
     ) {
         this.plugin = plugin;
         this.registry = registry;
         this.itemFactory = itemFactory;
         this.messages = messages;
         this.coreSupplier = coreSupplier;
+        this.editorSounds = editorSounds;
     }
 
     public void openList(Player player) {
@@ -138,6 +142,7 @@ public final class EditorManager implements Listener {
     private void openRecipeBrowser(Player player, String templateId, String filter, int page) {
         ConvertorTemplate template = registry.get(templateId);
         if (template == null) {
+            editorSounds.error(player);
             messages.send(player, "editor.not-found", Map.of("id", templateId));
             openList(player);
             return;
@@ -170,6 +175,7 @@ public final class EditorManager implements Listener {
     private void addRecipe(Player player, String templateId) {
         ConvertorTemplate template = registry.get(templateId);
         if (template == null) {
+            editorSounds.error(player);
             messages.send(player, "editor.not-found", Map.of("id", templateId));
             openList(player);
             return;
@@ -178,6 +184,7 @@ public final class EditorManager implements Listener {
         ConvertorRecipe recipe = ConvertorRecipe.createDefault(template.nextRecipeId());
         template.addRecipe(recipe);
         registry.save(template);
+        editorSounds.add(player);
         messages.send(player, "editor.recipe-created", Map.of("recipe", recipe.getId()));
         openRecipeEditor(player, template.getId(), recipe.getId());
     }
@@ -200,6 +207,7 @@ public final class EditorManager implements Listener {
         String filter = holder.request().filter();
         switch (click.action()) {
             case ENTRY -> {
+                editorSounds.open(player);
                 if (state.type == BrowserType.TEMPLATES) {
                     openEditor(player, click.entryId());
                 } else {
@@ -213,18 +221,32 @@ public final class EditorManager implements Listener {
                     addRecipe(player, state.templateId);
                 }
             }
+            case EXTRA -> {
+                // No auxiliary browser control is used by this editor.
+            }
             case BACK -> {
+                editorSounds.back(player);
                 if (state.type == BrowserType.RECIPES) {
                     openEditor(player, state.templateId);
                 }
             }
-            case SEARCH -> openBrowserSearch(player, state, filter);
+            case SEARCH -> {
+                editorSounds.search(player);
+                openBrowserSearch(player, state, filter);
+            }
             case CLEAR_SEARCH -> {
+                editorSounds.clearSearch(player);
                 messages.send(player, "editor.search-cleared");
                 openBrowserForState(player, state, "", 0);
             }
-            case PREVIOUS_PAGE -> openBrowserForState(player, state, filter, holder.request().page() - 1);
-            case NEXT_PAGE -> openBrowserForState(player, state, filter, holder.request().page() + 1);
+            case PREVIOUS_PAGE -> {
+                editorSounds.previousPage(player);
+                openBrowserForState(player, state, filter, holder.request().page() - 1);
+            }
+            case NEXT_PAGE -> {
+                editorSounds.nextPage(player);
+                openBrowserForState(player, state, filter, holder.request().page() + 1);
+            }
             case NONE -> {
                 // Filler and inactive navigation slots intentionally do nothing.
             }
@@ -257,6 +279,7 @@ public final class EditorManager implements Listener {
                 input -> handleNativeBrowserSearchInput(player, searchState, input),
                 () -> {
                     awaitingBrowserSearch.remove(player.getUniqueId());
+                    editorSounds.back(player);
                     messages.send(player, "editor.search-cancelled");
                     openBrowserForState(player, state, searchState.currentFilter, 0);
                 },
@@ -274,6 +297,7 @@ public final class EditorManager implements Listener {
         awaitingBrowserSearch.remove(player.getUniqueId());
         String filter = normalizeFilter(input);
         if (filter.equals("cancel")) {
+            editorSounds.back(player);
             messages.send(player, "editor.search-cancelled");
             openBrowserForState(player, new BrowserState(state.type, state.templateId), state.currentFilter, 0);
             return;
@@ -552,6 +576,7 @@ public final class EditorManager implements Listener {
                     return;
                 }
                 if (normalizedInput.equals("cancel")) {
+                    editorSounds.back(player);
                     messages.send(player, "editor.search-cancelled");
                     openBrowserForState(player, new BrowserState(searchState.type, searchState.templateId), searchState.currentFilter, 0);
                     return;
@@ -571,17 +596,27 @@ public final class EditorManager implements Listener {
 
             if (normalizedInput.equals("cancel")) {
                 awaitingCreateId.remove(uuid);
-                runForPlayer(event.getPlayer(), () -> messages.send(event.getPlayer(), "editor.create-cancelled"));
+                runForPlayer(event.getPlayer(), () -> {
+                    editorSounds.back(event.getPlayer());
+                    messages.send(event.getPlayer(), "editor.create-cancelled");
+                    openList(event.getPlayer());
+                });
                 return;
             }
 
             if (!ID_PATTERN.matcher(normalizedInput).matches()) {
-                runForPlayer(event.getPlayer(), () -> messages.send(event.getPlayer(), "editor.invalid-id"));
+                runForPlayer(event.getPlayer(), () -> {
+                    editorSounds.error(event.getPlayer());
+                    messages.send(event.getPlayer(), "editor.invalid-id");
+                });
                 return;
             }
 
             if (registry.get(normalizedInput) != null) {
-                runForPlayer(event.getPlayer(), () -> messages.send(event.getPlayer(), "editor.already-exists", Map.of("id", normalizedInput)));
+                runForPlayer(event.getPlayer(), () -> {
+                    editorSounds.error(event.getPlayer());
+                    messages.send(event.getPlayer(), "editor.already-exists", Map.of("id", normalizedInput));
+                });
                 return;
             }
 
@@ -594,6 +629,7 @@ public final class EditorManager implements Listener {
 
                 ConvertorTemplate created = ConvertorTemplate.createDefault(normalizedInput);
                 registry.save(created);
+                editorSounds.add(player);
                 messages.send(player, "editor.created", Map.of("id", normalizedInput));
                 openEditor(player, normalizedInput);
             });
@@ -613,6 +649,7 @@ public final class EditorManager implements Listener {
                 if (player == null || !player.isOnline()) {
                     return;
                 }
+                editorSounds.back(player);
                 messages.send(player, "editor.amount-cancelled");
                 openRecipeEditor(player, amountState.templateId, amountState.recipeId);
             });
@@ -620,13 +657,19 @@ public final class EditorManager implements Listener {
         }
 
         if (!AMOUNT_PATTERN.matcher(normalizedInput).matches()) {
-            runForPlayer(event.getPlayer(), () -> messages.send(event.getPlayer(), "editor.amount-invalid"));
+            runForPlayer(event.getPlayer(), () -> {
+                editorSounds.error(event.getPlayer());
+                messages.send(event.getPlayer(), "editor.amount-invalid");
+            });
             return;
         }
 
         int parsedAmount = Integer.parseInt(normalizedInput);
         if (parsedAmount <= 0 || parsedAmount > 6400) {
-            runForPlayer(event.getPlayer(), () -> messages.send(event.getPlayer(), "editor.amount-invalid"));
+            runForPlayer(event.getPlayer(), () -> {
+                editorSounds.error(event.getPlayer());
+                messages.send(event.getPlayer(), "editor.amount-invalid");
+            });
             return;
         }
 
@@ -660,6 +703,7 @@ public final class EditorManager implements Listener {
             }
 
             registry.save(template);
+            editorSounds.save(player);
             openRecipeEditor(player, amountState.templateId, amountState.recipeId);
         });
     }
@@ -688,33 +732,40 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_DISPLAY_ITEM) {
             if (!isRealItem(cursor)) {
                 messages.send(player, "editor.cursor-required");
+                editorSounds.addItemError(player);
                 return;
             }
             template.setDisplayItem(cursor);
             registry.save(template);
             messages.send(player, "editor.display-set", Map.of("id", template.getId()));
+            editorSounds.addItem(player);
             openEditor(player, template.getId());
             return;
         }
 
         if (slot == SLOT_RECIPES) {
+            editorSounds.open(player);
             openRecipeList(player, template.getId());
             return;
         }
 
         if (slot == SLOT_DEFAULT_ENABLED) {
-            template.setDefaultEnabled(!template.isDefaultEnabled());
+            boolean enabled = !template.isDefaultEnabled();
+            template.setDefaultEnabled(enabled);
             registry.save(template);
+            editorSounds.toggle(player, enabled);
             openEditor(player, template.getId());
             return;
         }
 
         if (slot == SLOT_DELETE) {
+            editorSounds.open(player);
             openConfirmDeleteTemplate(player, template.getId());
             return;
         }
 
         if (slot == SLOT_BACK) {
+            editorSounds.back(player);
             awaitingAmountInput.remove(player.getUniqueId());
             openList(player);
             return;
@@ -725,6 +776,7 @@ public final class EditorManager implements Listener {
     private void handleRecipeClick(Player player, InventoryClickEvent event, String templateId, String recipeId) {
         ConvertorTemplate template = registry.get(templateId);
         if (template == null) {
+            editorSounds.error(player);
             messages.send(player, "editor.not-found", Map.of("id", templateId));
             openList(player);
             return;
@@ -732,6 +784,7 @@ public final class EditorManager implements Listener {
 
         ConvertorRecipe recipe = template.getRecipe(recipeId);
         if (recipe == null) {
+            editorSounds.error(player);
             messages.send(player, "editor.recipe-not-found", Map.of("recipe", recipeId));
             openRecipeList(player, templateId);
             return;
@@ -743,12 +796,14 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_INPUT_ITEM) {
             if (!isRealItem(cursor)) {
                 messages.send(player, "editor.cursor-required");
+                editorSounds.addItemError(player);
                 return;
             }
             recipe.setInputItem(cursor);
             recipe.setInputAmount(cursor.getAmount());
             registry.save(template);
             messages.send(player, "editor.input-set", Map.of("id", template.getId(), "recipe", recipe.getId()));
+            editorSounds.addItem(player);
             openRecipeEditor(player, template.getId(), recipe.getId());
             return;
         }
@@ -756,12 +811,14 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_OUTPUT_ITEM) {
             if (!isRealItem(cursor)) {
                 messages.send(player, "editor.cursor-required");
+                editorSounds.addItemError(player);
                 return;
             }
             recipe.setOutputItem(cursor);
             recipe.setOutputAmount(cursor.getAmount());
             registry.save(template);
             messages.send(player, "editor.output-set", Map.of("id", template.getId(), "recipe", recipe.getId()));
+            editorSounds.addItem(player);
             openRecipeEditor(player, template.getId(), recipe.getId());
             return;
         }
@@ -779,13 +836,16 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_DELETE) {
             if (template.getRecipes().size() <= 1) {
                 messages.send(player, "editor.recipe-delete-last");
+                editorSounds.error(player);
                 return;
             }
+            editorSounds.open(player);
             openConfirmDeleteRecipe(player, template.getId(), recipe.getId());
             return;
         }
 
         if (slot == SLOT_BACK) {
+            editorSounds.back(player);
             awaitingAmountInput.remove(player.getUniqueId());
             openRecipeList(player, template.getId());
             return;
@@ -797,11 +857,13 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_CONFIRM) {
             registry.delete(templateId);
             messages.send(player, "editor.deleted", Map.of("id", templateId));
+            editorSounds.delete(player);
             openList(player);
             return;
         }
 
         if (slot == SLOT_CANCEL) {
+            editorSounds.back(player);
             openEditor(player, templateId);
         }
     }
@@ -809,6 +871,7 @@ public final class EditorManager implements Listener {
     private void handleConfirmRecipeClick(Player player, int slot, String templateId, String recipeId) {
         ConvertorTemplate template = registry.get(templateId);
         if (template == null) {
+            editorSounds.error(player);
             messages.send(player, "editor.not-found", Map.of("id", templateId));
             openList(player);
             return;
@@ -817,16 +880,19 @@ public final class EditorManager implements Listener {
         if (slot == SLOT_CONFIRM) {
             if (!template.removeRecipe(recipeId)) {
                 messages.send(player, "editor.recipe-delete-last");
+                editorSounds.error(player);
                 openRecipeEditor(player, template.getId(), recipeId);
                 return;
             }
             registry.save(template);
             messages.send(player, "editor.recipe-deleted", Map.of("recipe", recipeId));
+            editorSounds.delete(player);
             openRecipeList(player, template.getId());
             return;
         }
 
         if (slot == SLOT_CANCEL) {
+            editorSounds.back(player);
             openRecipeEditor(player, template.getId(), recipeId);
         }
     }
@@ -856,6 +922,7 @@ public final class EditorManager implements Listener {
                 request,
                 input -> handleNativeCreateIdInput(player, input),
                 () -> {
+                    editorSounds.back(player);
                     messages.send(player, "editor.create-cancelled");
                     openList(player);
                 },
@@ -873,18 +940,21 @@ public final class EditorManager implements Listener {
     private void handleNativeCreateIdInput(Player player, String input) {
         String normalizedInput = input == null ? "" : input.trim().toLowerCase(Locale.ROOT);
         if (normalizedInput.equals("cancel")) {
+            editorSounds.back(player);
             messages.send(player, "editor.create-cancelled");
             openList(player);
             return;
         }
 
         if (!ID_PATTERN.matcher(normalizedInput).matches()) {
+            editorSounds.error(player);
             messages.send(player, "editor.invalid-id");
             openList(player);
             return;
         }
 
         if (registry.get(normalizedInput) != null) {
+            editorSounds.error(player);
             messages.send(player, "editor.already-exists", Map.of("id", normalizedInput));
             openList(player);
             return;
@@ -892,6 +962,7 @@ public final class EditorManager implements Listener {
 
         ConvertorTemplate created = ConvertorTemplate.createDefault(normalizedInput);
         registry.save(created);
+        editorSounds.add(player);
         messages.send(player, "editor.created", Map.of("id", normalizedInput));
         openEditor(player, normalizedInput);
     }
@@ -932,6 +1003,7 @@ public final class EditorManager implements Listener {
                 request,
                 input -> handleNativeAmountInput(player, state, input),
                 () -> {
+                    editorSounds.back(player);
                     messages.send(player, "editor.amount-cancelled");
                     openRecipeEditor(player, state.templateId, state.recipeId);
                 },
@@ -952,12 +1024,14 @@ public final class EditorManager implements Listener {
     private void handleNativeAmountInput(Player player, AmountInputState state, String input) {
         String normalizedInput = input == null ? "" : input.trim().toLowerCase(Locale.ROOT);
         if (normalizedInput.equals("cancel")) {
+            editorSounds.back(player);
             messages.send(player, "editor.amount-cancelled");
             openRecipeEditor(player, state.templateId, state.recipeId);
             return;
         }
 
         if (!AMOUNT_PATTERN.matcher(normalizedInput).matches()) {
+            editorSounds.error(player);
             messages.send(player, "editor.amount-invalid");
             openRecipeEditor(player, state.templateId, state.recipeId);
             return;
@@ -965,6 +1039,7 @@ public final class EditorManager implements Listener {
 
         int parsedAmount = Integer.parseInt(normalizedInput);
         if (parsedAmount <= 0 || parsedAmount > 6400) {
+            editorSounds.error(player);
             messages.send(player, "editor.amount-invalid");
             openRecipeEditor(player, state.templateId, state.recipeId);
             return;
@@ -993,6 +1068,7 @@ public final class EditorManager implements Listener {
         }
 
         registry.save(template);
+        editorSounds.save(player);
         openRecipeEditor(player, state.templateId, state.recipeId);
     }
 
@@ -1014,15 +1090,18 @@ public final class EditorManager implements Listener {
                 }
         );
         DialogService dialogs = core.createDialogService(fallback);
-        EditorDialogInputs.openTextFromInventory(
-                plugin,
-                core.inventoryCloseSuppressor(),
+        boolean openedNative = EditorDialogInputs.openTextFromInventory(
+            plugin,
+            core.inventoryCloseSuppressor(),
                 dialogs,
                 player,
                 request,
-                onSubmit,
-                onCancel
+            onSubmit,
+            onCancel
         );
+        if (openedNative) {
+            editorSounds.open(player);
+        }
     }
 
     private FoCoreContext coreContext() {

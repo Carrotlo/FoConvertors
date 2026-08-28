@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.function.Supplier;
 import me.foesio.core.command.FoAdminArguments;
 import me.foesio.core.inventory.InventoryDepositResultMode;
 import me.foesio.core.inventory.InventoryDepositService;
@@ -14,6 +15,9 @@ import me.foesio.core.inventory.OverflowPolicy;
 import me.foesio.core.message.FoMessageService;
 import me.foesio.core.reload.FoReloadRegistry;
 import me.foesio.core.reload.FoReloadResult;
+import me.foesio.core.sound.FoAdminSounds;
+import me.foesio.core.sound.FoEditorSounds;
+import me.foesio.core.sound.FoSoundService;
 import me.foesio.core.update.UpdateNoticeService;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory;
 import me.foesio.foConvertors.convertor.ConvertorRegistry;
@@ -35,8 +39,11 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
     private final ConvertorItemFactory itemFactory;
     private final EditorManager editorManager;
     private final FoReloadRegistry reloads;
-    private final UpdateNoticeService updates;
+    private final Supplier<UpdateNoticeService> updates;
     private final InventoryDepositService inventoryDeposits;
+    private final FoAdminSounds adminSounds;
+    private final FoEditorSounds editorSounds;
+    private final FoSoundService sounds;
 
     public FoConvertorsCommand(
             FoMessageService messages,
@@ -44,8 +51,11 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
             ConvertorItemFactory itemFactory,
             EditorManager editorManager,
             FoReloadRegistry reloads,
-            UpdateNoticeService updates,
-            InventoryDepositService inventoryDeposits
+            Supplier<UpdateNoticeService> updates,
+            InventoryDepositService inventoryDeposits,
+            FoAdminSounds adminSounds,
+            FoEditorSounds editorSounds,
+            FoSoundService sounds
     ) {
         this.messages = messages;
         this.registry = registry;
@@ -54,6 +64,9 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         this.reloads = reloads;
         this.updates = updates;
         this.inventoryDeposits = inventoryDeposits;
+        this.adminSounds = adminSounds;
+        this.editorSounds = editorSounds;
+        this.sounds = sounds;
     }
 
     @Override
@@ -66,19 +79,24 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         String sub = args[0].toLowerCase(Locale.ROOT);
 
         if (sub.equals("version")) {
-            updates.checkAndSendVersion(sender);
+            UpdateNoticeService updateNoticeService = updates.get();
+            if (updateNoticeService != null) {
+                updateNoticeService.checkAndSendVersion(sender);
+            }
             return true;
         }
 
         if (sub.equals("editor")) {
             if (!hasAdmin(sender)) {
                 messages.send(sender, "command.no-permission");
+                adminSounds.updateError(sender);
                 return true;
             }
             if (!(sender instanceof Player player)) {
                 messages.send(sender, "command.player-only");
                 return true;
             }
+            editorSounds.open(player);
             editorManager.openList(player);
             return true;
         }
@@ -86,6 +104,7 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         if (sub.equals("give")) {
             if (!hasAdmin(sender)) {
                 messages.send(sender, "command.no-permission");
+                adminSounds.updateError(sender);
                 return true;
             }
             handleGive(sender, args);
@@ -95,6 +114,7 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         if (sub.equals("reload")) {
             if (!hasAdmin(sender)) {
                 messages.send(sender, "command.no-permission");
+                adminSounds.updateError(sender);
                 return true;
             }
             FoReloadResult result = reloads.reload();
@@ -102,14 +122,21 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
                 messages.send(sender, "command.reload-failed",
                         "{prefix}{bad}Reload failed at {theme}{step}{bad}. {muted}{error}",
                         Map.of("step", result.failedStep(), "error", result.errorMessage()));
+                if (sender instanceof Player player) {
+                    adminSounds.reloadError(player);
+                }
                 return true;
             }
             messages.send(sender, "command.reloaded", "{prefix}{success}Config, messages, and convertor templates reloaded.");
+            if (sender instanceof Player player) {
+                adminSounds.reload(player);
+            }
             return true;
         }
 
         messages.send(sender, "command.unknown-subcommand", Map.of("sub", sub));
         sendHelp(sender);
+        adminSounds.updateError(sender);
         return true;
     }
 
@@ -144,12 +171,14 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
     private void handleGive(CommandSender sender, String[] args) {
         if (args.length < 3) {
             messages.send(sender, "command.usage-give");
+            adminSounds.updateError(sender);
             return;
         }
 
         Player target = FoAdminArguments.onlinePlayer().parse(args[1]).orElse(null);
         if (target == null) {
             messages.send(sender, "command.player-not-found", Map.of("player", args[1]));
+            adminSounds.updateError(sender);
             return;
         }
 
@@ -157,6 +186,7 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         ConvertorTemplate template = registry.get(id);
         if (template == null) {
             messages.send(sender, "command.convertor-not-found", Map.of("id", id));
+            adminSounds.updateError(sender);
             return;
         }
 
@@ -166,6 +196,7 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
                 amount = Math.max(1, Integer.parseInt(args[3]));
             } catch (NumberFormatException ignored) {
                 messages.send(sender, "command.invalid-amount");
+                adminSounds.updateError(sender);
                 return;
             }
         }
@@ -182,6 +213,7 @@ public final class FoConvertorsCommand implements CommandExecutor, TabCompleter 
         if (!sender.getName().equalsIgnoreCase(target.getName())) {
             messages.send(target, "command.received", placeholders);
         }
+        sounds.play(target, "convertor.received");
     }
 
     private void giveStackedItems(Player player, ItemStack templateItem, int amount) {

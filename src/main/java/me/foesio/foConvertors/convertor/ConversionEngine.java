@@ -5,30 +5,39 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import me.foesio.core.inventory.InventoryDepositResultMode;
 import me.foesio.core.inventory.InventoryDepositService;
 import me.foesio.core.inventory.OverflowPolicy;
+import me.foesio.core.sound.FoSoundService;
 import me.foesio.foConvertors.config.PluginSettings;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
 public final class ConversionEngine {
+    private static final long PROCESSED_SOUND_COOLDOWN_MILLIS = 250L;
+
     private final ConvertorRegistry registry;
     private final ConvertorItemFactory itemFactory;
     private final PluginSettings settings;
     private final InventoryDepositService inventoryDeposits;
+    private final FoSoundService sounds;
+    private final ConcurrentHashMap<UUID, Long> lastProcessedSoundMillis = new ConcurrentHashMap<>();
 
     public ConversionEngine(
             ConvertorRegistry registry,
             ConvertorItemFactory itemFactory,
             PluginSettings settings,
-            InventoryDepositService inventoryDeposits
+            InventoryDepositService inventoryDeposits,
+            FoSoundService sounds
     ) {
         this.registry = registry;
         this.itemFactory = itemFactory;
         this.settings = settings;
         this.inventoryDeposits = Objects.requireNonNull(inventoryDeposits, "inventoryDeposits");
+        this.sounds = Objects.requireNonNull(sounds, "sounds");
     }
 
     public int processPlayer(Player player) {
@@ -97,7 +106,29 @@ public final class ConversionEngine {
             giveOrDrop(player, queuedOutput.outputItem(), queuedOutput.amount());
         }
 
+        if (conversions > 0) {
+            playProcessedSound(player);
+        }
+
         return conversions;
+    }
+
+    public void forgetPlayer(UUID playerId) {
+        if (playerId != null) {
+            lastProcessedSoundMillis.remove(playerId);
+        }
+    }
+
+    private void playProcessedSound(Player player) {
+        long now = System.currentTimeMillis();
+        UUID playerId = player.getUniqueId();
+        long last = lastProcessedSoundMillis.getOrDefault(playerId, 0L);
+        if (now - last < PROCESSED_SOUND_COOLDOWN_MILLIS) {
+            return;
+        }
+
+        lastProcessedSoundMillis.put(playerId, now);
+        sounds.playWithPitchVariation(player, "convertor.processed", 0.08f);
     }
 
     private Set<ConvertorTemplate> resolveActiveTemplates(Player player) {

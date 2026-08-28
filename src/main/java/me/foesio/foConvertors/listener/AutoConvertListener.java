@@ -81,6 +81,7 @@ public final class AutoConvertListener implements Listener {
         inProgress.remove(uuid);
         queued.remove(uuid);
         lastRunMillis.remove(uuid);
+        engine.forgetPlayer(uuid);
     }
 
     public void requestProcess(Player player) {

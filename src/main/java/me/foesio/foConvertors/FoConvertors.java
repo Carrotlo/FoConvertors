@@ -11,6 +11,9 @@ import me.foesio.core.dialog.NativeDialogConfigDefaults;
 import me.foesio.core.message.FoMessageMigrations;
 import me.foesio.core.message.FoMessageService;
 import me.foesio.core.reload.FoReloadRegistry;
+import me.foesio.core.sound.FoAdminSounds;
+import me.foesio.core.sound.FoEditorSounds;
+import me.foesio.core.sound.FoSoundService;
 import me.foesio.core.update.UpdateNoticeService;
 import me.foesio.foConvertors.command.FoConvertorsCommand;
 import me.foesio.foConvertors.config.PluginSettings;
@@ -28,6 +31,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.event.HandlerList;
 
 public final class FoConvertors extends JavaPlugin {
     private static final int BSTATS_PLUGIN_ID = 33112;
@@ -35,6 +39,10 @@ public final class FoConvertors extends JavaPlugin {
     private static final Pattern LEGACY_MESSAGE_TOKEN = Pattern.compile("<([A-Za-z0-9_-]+)>");
 
     private FoCoreContext core;
+    private FoMessageService messages;
+    private FoSoundService sounds;
+    private FoAdminSounds adminSounds;
+    private FoEditorSounds editorSounds;
     private UpdateNoticeService updates;
     private boolean removeLegacyMessageConfigPaths;
 
@@ -43,11 +51,9 @@ public final class FoConvertors extends JavaPlugin {
         PluginSettings settings = new PluginSettings(this);
         settings.reload();
 
-        refreshCoreContext();
-
-        FoMessageService messages = FoMessageService.load(this, messageMigrations());
+        this.messages = FoMessageService.load(this, messageMigrations());
         removeLegacyMessageConfigPaths();
-        updates = coreContext().createUpdateNotices(messages, MODRINTH_PROJECT_ID).start();
+        refreshCoreContext(true);
 
         ConvertorStorage storage = new ConvertorStorage(this);
         storage.ensureFolder();
@@ -56,11 +62,17 @@ public final class FoConvertors extends JavaPlugin {
         registry.load();
 
         ConvertorItemFactory itemFactory = new ConvertorItemFactory(this, registry, messages, settings);
-        ConversionEngine conversionEngine = new ConversionEngine(registry, itemFactory, settings, coreContext().inventoryDeposits());
+        ConversionEngine conversionEngine = new ConversionEngine(
+                registry,
+                itemFactory,
+                settings,
+                coreContext().inventoryDeposits(),
+                sounds
+        );
 
-        EditorManager editorManager = new EditorManager(this, registry, itemFactory, messages, this::coreContext);
+        EditorManager editorManager = new EditorManager(this, registry, itemFactory, messages, this::coreContext, editorSounds);
         AutoConvertListener autoConvertListener = new AutoConvertListener(this::coreContext, conversionEngine);
-        ConvertorToggleListener toggleListener = new ConvertorToggleListener(itemFactory, settings, messages, autoConvertListener);
+        ConvertorToggleListener toggleListener = new ConvertorToggleListener(itemFactory, settings, messages, autoConvertListener, sounds);
 
         PluginManager pluginManager = getServer().getPluginManager();
         pluginManager.registerEvents(editorManager, this);
@@ -70,7 +82,8 @@ public final class FoConvertors extends JavaPlugin {
 
         FoReloadRegistry reloads = FoReloadRegistry.create()
                 .add("config", settings::reload)
-                .add("dialog foundation", this::refreshCoreContext)
+                .add("dialog foundation", () -> refreshCoreContext(false))
+                .add("sounds", () -> sounds.reload())
                 .addMessages(messages)
                 .add("convertor item messages", itemFactory::reloadLoreTemplates)
                 .add("convertor templates", registry::reload);
@@ -81,8 +94,11 @@ public final class FoConvertors extends JavaPlugin {
                 itemFactory,
                 editorManager,
                 reloads,
-                updates,
-                coreContext().inventoryDeposits()
+                this::updates,
+                coreContext().inventoryDeposits(),
+                adminSounds,
+                editorSounds,
+                sounds
         );
 
         PluginCommand command = getCommand("foconvertors");
@@ -103,10 +119,15 @@ public final class FoConvertors extends JavaPlugin {
             core.close();
             core = null;
         }
+        HandlerList.unregisterAll(updates);
         updates = null;
     }
 
-    private void refreshCoreContext() {
+    private void refreshCoreContext(boolean startup) {
+        if (updates != null) {
+            HandlerList.unregisterAll(updates);
+            updates = null;
+        }
         if (core != null) {
             core.close();
         }
@@ -115,8 +136,37 @@ public final class FoConvertors extends JavaPlugin {
         saveConfig();
 
         core = FoPluginCore.create(this);
+        if (sounds == null) {
+            sounds = core.createSounds();
+            adminSounds = FoAdminSounds.create(sounds);
+            editorSounds = FoEditorSounds.create(sounds);
+        }
         core.warnIfNativeDialogsUnavailable();
         core.metrics(BSTATS_PLUGIN_ID);
+        if (messages != null) {
+            updates = core.createUpdateNotices(messages, MODRINTH_PROJECT_ID, adminSounds);
+            if (startup) {
+                updates.start();
+            } else {
+                updates.registerJoinListener();
+            }
+        }
+    }
+
+    public FoSoundService sounds() {
+        return sounds;
+    }
+
+    public FoAdminSounds adminSounds() {
+        return adminSounds;
+    }
+
+    public FoEditorSounds editorSounds() {
+        return editorSounds;
+    }
+
+    public UpdateNoticeService updates() {
+        return updates;
     }
 
     private FoMessageMigrations messageMigrations() {
