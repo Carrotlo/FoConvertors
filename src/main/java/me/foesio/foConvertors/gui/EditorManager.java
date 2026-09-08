@@ -110,7 +110,7 @@ public final class EditorManager implements Listener {
         templates.sort((left, right) -> left.getId().compareToIgnoreCase(right.getId()));
         List<EntryBrowserRequest.Entry> entries = templates.stream()
                 .filter(template -> matchesFilter(template.getId(), normalizedFilter))
-                .map(template -> EntryBrowserRequest.Entry.of(template.getId(), buildTemplateIcon(template)))
+                .map(template -> EntryBrowserRequest.Entry.of(template.getId(), buildTemplateIcon(player, template)))
                 .toList();
 
         browserStates.put(player.getUniqueId(), new BrowserState(BrowserType.TEMPLATES, null));
@@ -120,14 +120,11 @@ public final class EditorManager implements Listener {
                 .page(page)
                 .filter(normalizedFilter)
                 .buttons(BUTTONS)
-                .addButton(createMenuItem(
-                        Material.ANVIL,
-                        "{theme}Create Convertor",
+                .addButton(button(player, FoStyle.THEME, Material.ANVIL, "Create Convertor",
                         List.of(
                                 "{white}Click to create a new convertor template.",
                                 "{white}You will enter the template id in chat."
-                        )
-                ))
+                        ), "create a convertor"))
                 .build());
     }
 
@@ -153,7 +150,7 @@ public final class EditorManager implements Listener {
         recipes.sort((left, right) -> left.getId().compareToIgnoreCase(right.getId()));
         List<EntryBrowserRequest.Entry> entries = recipes.stream()
                 .filter(recipe -> matchesFilter(recipe.getId(), normalizedFilter))
-                .map(recipe -> EntryBrowserRequest.Entry.of(recipe.getId(), buildRecipeIcon(recipe)))
+                .map(recipe -> EntryBrowserRequest.Entry.of(recipe.getId(), buildRecipeIcon(player, recipe)))
                 .toList();
 
         browserStates.put(player.getUniqueId(), new BrowserState(BrowserType.RECIPES, template.getId()));
@@ -164,11 +161,8 @@ public final class EditorManager implements Listener {
                 .filter(normalizedFilter)
                 .buttons(BUTTONS)
                 .showBack(true)
-                .addButton(createMenuItem(
-                        Material.ANVIL,
-                        "{theme}Add Recipe",
-                        List.of("{white}Create a new input/output recipe.")
-                ))
+                .addButton(button(player, FoStyle.GOOD, Material.ANVIL, "Add Recipe",
+                        List.of("{white}Create a new input/output recipe."), "add a recipe"))
                 .build());
     }
 
@@ -341,31 +335,24 @@ public final class EditorManager implements Listener {
                 )
         ));
 
-        inventory.setItem(SLOT_RECIPES, createMenuItem(
-                Material.CRAFTING_TABLE,
-                "{theme}Recipes",
+        inventory.setItem(SLOT_RECIPES, button(player, FoStyle.THEME, Material.CRAFTING_TABLE, "Recipes",
                 List.of(
                         "{white}Configured recipes: {theme}" + template.getRecipes().size(),
                         "{white}Click to edit input and output recipes."
-                )
-        ));
+                ), "manage recipes"));
 
-        inventory.setItem(SLOT_DEFAULT_ENABLED, createMenuItem(
+        inventory.setItem(SLOT_DEFAULT_ENABLED, button(player, template.isDefaultEnabled() ? FoStyle.GOOD : FoStyle.BAD,
                 template.isDefaultEnabled() ? Material.LIME_DYE : Material.RED_DYE,
-                template.isDefaultEnabled() ? "{success}Default: Enabled" : "{bad}Default: Disabled",
-                List.of("{white}Click to toggle default state for given items.")
-        ));
+                "Default Enabled", List.of("{white}State: " + (template.isDefaultEnabled() ? "{good}ON" : "{bad}OFF"),
+                        "{white}Click to toggle default state for given items."), "toggle default state"));
 
-        inventory.setItem(SLOT_DELETE, createMenuItem(
-                Material.LAVA_BUCKET,
-                "{bad}Delete Convertor",
+        inventory.setItem(SLOT_DELETE, button(player, FoStyle.BAD, Material.LAVA_BUCKET, "Delete Convertor",
                 List.of(
                         "{white}Click to open delete confirmation.",
                         "{white}This removes the template from disk."
-                )
-        ));
+                ), "delete the convertor"));
 
-        inventory.setItem(SLOT_BACK, BUTTONS.back());
+        inventory.setItem(SLOT_BACK, BUTTONS.back(player));
 
         player.openInventory(inventory);
     }
@@ -390,41 +377,36 @@ public final class EditorManager implements Listener {
 
         decorateRecipeEditor(inventory, template, recipe);
 
-        inventory.setItem(SLOT_INPUT_ITEM, previewItem(
+        inventory.setItem(SLOT_INPUT_ITEM, recipeItemButton(
+                player,
                 recipe.getInputItem(),
-                "{theme}Input Item",
-                List.of(
-                        "{white}Current amount: {theme}" + recipe.getInputAmount(),
-                        "{white}Put an item on your cursor and click to set."
-                )
+                "Input Item",
+                recipe.getInputAmount(),
+                "set input item"
         ));
 
-        inventory.setItem(SLOT_INPUT_AMOUNT, createAmountButton(
+        inventory.setItem(SLOT_INPUT_AMOUNT, createAmountButton(player,
                 "{theme}Input Amount",
                 recipe.getInputAmount()
         ));
 
-        inventory.setItem(SLOT_OUTPUT_ITEM, previewItem(
+        inventory.setItem(SLOT_OUTPUT_ITEM, recipeItemButton(
+                player,
                 recipe.getOutputItem(),
-                "{theme}Output Item",
-                List.of(
-                        "{white}Current amount: {theme}" + recipe.getOutputAmount(),
-                        "{white}Put an item on your cursor and click to set."
-                )
+                "Output Item",
+                recipe.getOutputAmount(),
+                "set output item"
         ));
 
-        inventory.setItem(SLOT_OUTPUT_AMOUNT, createAmountButton(
+        inventory.setItem(SLOT_OUTPUT_AMOUNT, createAmountButton(player,
                 "{theme}Output Amount",
                 recipe.getOutputAmount()
         ));
 
-        inventory.setItem(SLOT_DELETE, createMenuItem(
-                Material.LAVA_BUCKET,
-                "{bad}Delete Recipe",
-                List.of("{white}Click to open delete confirmation.")
-        ));
+        inventory.setItem(SLOT_DELETE, button(player, FoStyle.BAD, Material.LAVA_BUCKET, "Delete Recipe",
+                List.of("{white}Click to open delete confirmation."), "delete the recipe"));
 
-        inventory.setItem(SLOT_BACK, BUTTONS.back());
+        inventory.setItem(SLOT_BACK, BUTTONS.back(player));
 
         player.openInventory(inventory);
     }
@@ -440,16 +422,10 @@ public final class EditorManager implements Listener {
         String title = GuiTitles.format("Delete Convertor");
         Inventory inventory = Bukkit.createInventory(GuiHolder.confirmTemplate(template.getId()), 27, title);
         fillAll(inventory);
-        inventory.setItem(SLOT_CONFIRM, createMenuItem(
-                Material.LIME_DYE,
-                "{success}Confirm",
-                List.of("{white}Delete convertor {theme}" + template.getId() + "{white}.")
-        ));
-        inventory.setItem(SLOT_CANCEL, createMenuItem(
-                Material.RED_WOOL,
-                "{bad}Cancel",
-                List.of("{white}Return to convertor settings.")
-        ));
+        inventory.setItem(SLOT_CONFIRM, button(player, FoStyle.GOOD, Material.LIME_DYE, "Confirm",
+                List.of("{white}Delete convertor {theme}" + template.getId() + "{white}."), "confirm deletion"));
+        inventory.setItem(SLOT_CANCEL, button(player, FoStyle.BAD, Material.RED_WOOL, "Cancel",
+                List.of("{white}Return to convertor settings."), "cancel deletion"));
         player.openInventory(inventory);
     }
 
@@ -471,16 +447,10 @@ public final class EditorManager implements Listener {
         String title = GuiTitles.format("Delete Recipe");
         Inventory inventory = Bukkit.createInventory(GuiHolder.confirmRecipe(template.getId(), recipe.getId()), 27, title);
         fillAll(inventory);
-        inventory.setItem(SLOT_CONFIRM, createMenuItem(
-                Material.LIME_DYE,
-                "{success}Confirm",
-                List.of("{white}Delete recipe {theme}" + recipe.getId() + "{white}.")
-        ));
-        inventory.setItem(SLOT_CANCEL, createMenuItem(
-                Material.RED_WOOL,
-                "{bad}Cancel",
-                List.of("{white}Return to recipe settings.")
-        ));
+        inventory.setItem(SLOT_CONFIRM, button(player, FoStyle.GOOD, Material.LIME_DYE, "Confirm",
+                List.of("{white}Delete recipe {theme}" + recipe.getId() + "{white}."), "confirm deletion"));
+        inventory.setItem(SLOT_CANCEL, button(player, FoStyle.BAD, Material.RED_WOOL, "Cancel",
+                List.of("{white}Return to recipe settings."), "cancel deletion"));
         player.openInventory(inventory);
     }
 
@@ -1114,7 +1084,7 @@ public final class EditorManager implements Listener {
 
     private void warnPlayerFallback(Player player) {
         NativeDialogSupport support = coreContext().nativeDialogs();
-        if (!support.configEnabled() || support.canUseNativeDialogs() || !support.warnOnFallback()) {
+        if (!support.configEnabled() || support.canUseNativeDialogs(player) || !support.warnOnFallback()) {
             return;
         }
         if (!player.hasPermission("foconvertors.admin")) {
@@ -1135,43 +1105,28 @@ public final class EditorManager implements Listener {
         coreContext().scheduler().runForPlayer(player, runnable);
     }
 
-    private ItemStack buildTemplateIcon(ConvertorTemplate template) {
-        ItemStack icon = itemFactory.createConvertorItem(template, template.isDefaultEnabled());
-        ItemMeta meta = icon.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(messages.renderTemplate("{theme}" + template.getId(), Collections.emptyMap()));
-            List<String> lore = new ArrayList<>();
-            lore.add(messages.renderTemplate("{white}Recipes: {theme}" + template.getRecipes().size(), Collections.emptyMap()));
-            int previewCount = Math.min(3, template.getRecipes().size());
-            for (int index = 0; index < previewCount; index++) {
-                lore.add(messages.renderTemplate("{muted}- " + formatRecipeLine(template.getRecipes().get(index)), Collections.emptyMap()));
-            }
-            if (template.getRecipes().size() > previewCount) {
-                lore.add(messages.renderTemplate("{muted}- +" + (template.getRecipes().size() - previewCount) + " more", Collections.emptyMap()));
-            }
-            lore.add(messages.renderTemplate("{white}Default: " + (template.isDefaultEnabled() ? "{success}Enabled" : "{bad}Disabled"), Collections.emptyMap()));
-            lore.add(messages.renderTemplate("{white}Click to edit this convertor.", Collections.emptyMap()));
-            meta.setLore(lore);
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_UNBREAKABLE);
-            icon.setItemMeta(meta);
+    private ItemStack buildTemplateIcon(Player player, ConvertorTemplate template) {
+        Material material = template.getDisplayItem().getType().isAir()
+                ? Material.CHEST_MINECART
+                : template.getDisplayItem().getType();
+        List<String> information = new ArrayList<>();
+        information.add("{white}Recipes: {theme}" + template.getRecipes().size());
+        int previewCount = Math.min(3, template.getRecipes().size());
+        for (int index = 0; index < previewCount; index++) {
+            information.add("{muted}- " + formatRecipeLine(template.getRecipes().get(index)));
         }
-        return icon;
+        if (template.getRecipes().size() > previewCount) {
+            information.add("{muted}- +" + (template.getRecipes().size() - previewCount) + " more");
+        }
+        information.add("{white}Default: " + (template.isDefaultEnabled() ? "{success}Enabled" : "{bad}Disabled"));
+        return button(player, FoStyle.THEME, material, template.getId(), information, "edit the convertor");
     }
 
-    private ItemStack buildRecipeIcon(ConvertorRecipe recipe) {
-        ItemStack icon = recipe.getInputItem();
-        ItemMeta meta = icon.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName(messages.renderTemplate("{theme}" + recipe.getId(), Collections.emptyMap()));
-            meta.setLore(List.of(
-                    messages.renderTemplate("{white}Input: {theme}" + recipe.getInputAmount() + "x " + recipe.getInputItem().getType().name(), Collections.emptyMap()),
-                    messages.renderTemplate("{white}Output: {theme}" + recipe.getOutputAmount() + "x " + recipe.getOutputItem().getType().name(), Collections.emptyMap()),
-                    messages.renderTemplate("{white}Click to edit this recipe.", Collections.emptyMap())
-            ));
-            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_ENCHANTS, ItemFlag.HIDE_UNBREAKABLE);
-            icon.setItemMeta(meta);
-        }
-        return icon;
+    private ItemStack buildRecipeIcon(Player player, ConvertorRecipe recipe) {
+        return button(player, FoStyle.THEME, recipe.getInputItem().getType(), recipe.getId(), List.of(
+                "{white}Input: {theme}" + recipe.getInputAmount() + "x " + recipe.getInputItem().getType().name(),
+                "{white}Output: {theme}" + recipe.getOutputAmount() + "x " + recipe.getOutputItem().getType().name()
+        ), "edit the recipe");
     }
 
     private ItemStack previewItem(ItemStack base, String name, List<String> lore) {
@@ -1210,16 +1165,28 @@ public final class EditorManager implements Listener {
         return item;
     }
 
-    private ItemStack createAmountButton(String name, int amount) {
-        return createMenuItem(
-                Material.PAPER,
-                name,
-                List.of(
+    private ItemStack createAmountButton(Player player, String name, int amount) {
+        return button(player, FoStyle.THEME, Material.PAPER, name, List.of(
                         "{white}Current value: {theme}" + amount,
                         "{white}Click to type a new amount in chat.",
                         "{white}Type {theme}cancel {white}to abort."
-                )
-        );
+                ), "edit the amount");
+    }
+
+    private ItemStack recipeItemButton(
+            Player player,
+            ItemStack configuredItem,
+            String label,
+            int amount,
+            String action
+    ) {
+        return button(player, FoStyle.THEME, configuredItem.getType(), label, List.of(
+                "{white}Item: {theme}" + configuredItem.getType().name(),
+                "{white}Current amount: {theme}" + amount,
+                "{muted}Custom name: " + getDisplayNameText(configuredItem.getItemMeta()),
+                "{muted}Lore lines: {theme}" + getLoreCount(configuredItem.getItemMeta()),
+                "{white}Put an item on your cursor to replace it."
+        ), action);
     }
 
     private ItemStack createMenuItem(Material material, String name, List<String> lore) {
@@ -1235,6 +1202,14 @@ public final class EditorManager implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private ItemStack button(Player player, String color, Material material, String label, List<String> information, String action) {
+        String renderedLabel = messages.renderTemplate(label, Collections.emptyMap());
+        List<String> renderedInformation = information == null ? List.of() : information.stream()
+                .map(line -> messages.renderTemplate(line, Collections.emptyMap()))
+                .toList();
+        return EditorItemFactory.button(player, material, color, renderedLabel, renderedInformation, action);
     }
 
     private static GuiHolder getHolder(Inventory inventory) {

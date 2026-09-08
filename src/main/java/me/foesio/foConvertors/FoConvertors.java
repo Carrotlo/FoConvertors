@@ -54,6 +54,7 @@ public final class FoConvertors extends JavaPlugin {
         this.messages = FoMessageService.load(this, messageMigrations());
         removeLegacyMessageConfigPaths();
         refreshCoreContext(true);
+        migrateSprites();
 
         ConvertorStorage storage = new ConvertorStorage(this);
         storage.ensureFolder();
@@ -174,6 +175,26 @@ public final class FoConvertors extends JavaPlugin {
                 .removeExact("command.version", "{prefix}{muted}Author: {theme}{author}{muted} | Version: {theme}{version}")
                 .add(this::migrateLegacyMessageFile)
                 .build();
+    }
+
+    private void migrateSprites() {
+        messages.migrateToVersion(core.migrations(), 1, config -> {
+            boolean changed = false;
+            changed |= FoMessageService.addMissingToken(config, "tokens.prefix", ":repeater:", null);
+            changed |= FoMessageService.addMissingToken(config, "command.player-not-found", ":player_head:");
+            changed |= FoMessageService.addMissingToken(config, "command.convertor-not-found", ":barrier:");
+            changed |= FoMessageService.addMissingToken(config, "command.gave", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "command.received", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "command.reloaded", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "command.reload-failed", ":redstone:");
+            changed |= FoMessageService.addMissingToken(config, "editor.created", ":emerald:");
+            changed |= FoMessageService.addMissingToken(config, "editor.deleted", ":lava_bucket:");
+            changed |= FoMessageService.addMissingToken(config, "editor.recipe-created", ":crafting_table:");
+            changed |= FoMessageService.addMissingToken(config, "editor.recipe-deleted", ":lava_bucket:");
+            changed |= FoMessageService.addMissingToken(config, "editor.input-set", ":paper:");
+            changed |= FoMessageService.addMissingToken(config, "editor.output-set", ":paper:");
+            return true;
+        });
     }
 
     private boolean migrateLegacyMessageFile(FileConfiguration messagesConfig) {
