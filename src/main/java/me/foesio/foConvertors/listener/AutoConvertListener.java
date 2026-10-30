@@ -84,14 +84,14 @@ public final class AutoConvertListener implements Listener {
         engine.forgetPlayer(uuid);
     }
 
-    public void requestProcess(Player player) {
+    public boolean requestProcess(Player player) {
         if (player == null || !player.isOnline()) {
-            return;
+            return false;
         }
 
         UUID uuid = player.getUniqueId();
         if (!queued.add(uuid)) {
-            return;
+            return false;
         }
 
         coreContext().scheduler().runForPlayer(player, () -> {
@@ -101,6 +101,7 @@ public final class AutoConvertListener implements Listener {
                 queued.remove(uuid);
             }
         });
+        return true;
     }
 
     private FoCoreContext coreContext() {

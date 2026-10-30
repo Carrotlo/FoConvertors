@@ -6,11 +6,11 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class PluginSettings {
     private final JavaPlugin plugin;
 
-    private boolean sendToggleMessage;
-    private boolean requireOffhandConvertor;
-    private int maxConversionsPerPass;
-    private long toggleCooldownMs;
-    private ToggleClickMode toggleClickMode;
+    private volatile boolean sendToggleMessage;
+    private volatile boolean requireOffhandConvertor;
+    private volatile int maxConversionsPerPass;
+    private volatile long toggleCooldownMs;
+    private volatile ToggleClickMode toggleClickMode;
 
     public PluginSettings(JavaPlugin plugin) {
         this.plugin = plugin;

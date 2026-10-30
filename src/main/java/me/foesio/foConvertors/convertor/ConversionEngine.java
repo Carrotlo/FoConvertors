@@ -7,6 +7,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import me.foesio.foConvertors.api.ConversionEntry;
+import me.foesio.foConvertors.event.ConvertorConversionAttemptEvent;
+import me.foesio.foConvertors.event.ConvertorConversionCompletedEvent;
+import org.bukkit.Bukkit;
 import me.foesio.core.inventory.InventoryDepositResultMode;
 import me.foesio.core.inventory.InventoryDepositService;
 import me.foesio.core.inventory.OverflowPolicy;
@@ -49,7 +53,12 @@ public final class ConversionEngine {
         PlayerInventory inventory = player.getInventory();
         int maxConversions = settings.getMaxConversionsPerPass();
         int conversions = 0;
+        boolean cancellable = ConvertorConversionAttemptEvent.getHandlerList().getRegisteredListeners().length > 0;
+        boolean reportCompleted = ConvertorConversionCompletedEvent.getHandlerList().getRegisteredListeners().length > 0;
         List<QueuedOutput> queuedOutputs = new ArrayList<>(Math.min(maxConversions, 36));
+        List<ConversionEntry> details = cancellable || reportCompleted ? new ArrayList<>(Math.min(maxConversions, 36)) : null;
+        int[] remainingAmounts = cancellable ? new int[36] : null;
+        ItemStack[] expectedInputs = cancellable ? new ItemStack[36] : null;
 
         outer:
         for (ConvertorTemplate template : activeTemplates) {
@@ -67,6 +76,14 @@ public final class ConversionEngine {
                         continue;
                     }
 
+                    int availableAmount = current.getAmount();
+                    if (cancellable) {
+                        if (expectedInputs[slot] != null) availableAmount = remainingAmounts[slot];
+                        if (availableAmount <= 0) {
+                            continue;
+                        }
+                    }
+
                     if (!matchesStrictMeta(current, requiredInput)) {
                         continue;
                     }
@@ -75,20 +92,27 @@ public final class ConversionEngine {
                         continue;
                     }
 
-                    int possibleTimes = current.getAmount() / recipe.getInputAmount();
+                    int possibleTimes = availableAmount / recipe.getInputAmount();
                     if (possibleTimes <= 0) {
                         continue;
                     }
 
                     int allowedTimes = Math.min(possibleTimes, maxConversions - conversions);
+                    allowedTimes = Math.min(allowedTimes, Integer.MAX_VALUE / recipe.getOutputAmount());
                     if (allowedTimes <= 0) {
                         continue;
                     }
 
-                    int removeAmount = allowedTimes * recipe.getInputAmount();
-                    int remaining = current.getAmount() - removeAmount;
+                    if (cancellable && expectedInputs[slot] == null) {
+                        expectedInputs[slot] = current.clone();
+                    }
 
-                    if (remaining <= 0) {
+                    int removeAmount = allowedTimes * recipe.getInputAmount();
+                    int remaining = availableAmount - removeAmount;
+
+                    if (cancellable) {
+                        remainingAmounts[slot] = remaining;
+                    } else if (remaining <= 0) {
                         inventory.setItem(slot, null);
                     } else {
                         current.setAmount(remaining);
@@ -97,7 +121,44 @@ public final class ConversionEngine {
 
                     int outputAmount = allowedTimes * recipe.getOutputAmount();
                     queuedOutputs.add(new QueuedOutput(resultOutput, outputAmount));
+                    if (details != null) {
+                        details.add(new ConversionEntry(template.getId(), recipe.getId(), allowedTimes,
+                                requiredInput, removeAmount, resultOutput, outputAmount));
+                    }
                     conversions += allowedTimes;
+                }
+            }
+        }
+
+        if (conversions == 0) {
+            return 0;
+        }
+
+        if (cancellable) {
+            var templateVersion = registry.publicSnapshots();
+            ConvertorConversionAttemptEvent attempt = new ConvertorConversionAttemptEvent(player, details);
+            Bukkit.getPluginManager().callEvent(attempt);
+            if (attempt.isCancelled() || !player.isOnline() || registry.publicSnapshots() != templateVersion
+                    || !resolveActiveTemplates(player).containsAll(activeTemplates)) {
+                return 0;
+            }
+            for (int slot = 0; slot < expectedInputs.length; slot++) {
+                ItemStack expected = expectedInputs[slot];
+                if (expected == null || expected.getAmount() == remainingAmounts[slot]) continue;
+                ItemStack actual = inventory.getItem(slot);
+                if (actual == null || actual.getAmount() != expected.getAmount() || !actual.isSimilar(expected)) {
+                    return 0;
+                }
+            }
+            for (int slot = 0; slot < expectedInputs.length; slot++) {
+                ItemStack expected = expectedInputs[slot];
+                if (expected == null || expected.getAmount() == remainingAmounts[slot]) continue;
+                if (remainingAmounts[slot] <= 0) {
+                    inventory.setItem(slot, null);
+                } else {
+                    ItemStack remaining = expected.clone();
+                    remaining.setAmount(remainingAmounts[slot]);
+                    inventory.setItem(slot, remaining);
                 }
             }
         }
@@ -106,9 +167,11 @@ public final class ConversionEngine {
             giveOrDrop(player, queuedOutput.outputItem(), queuedOutput.amount());
         }
 
-        if (conversions > 0) {
-            playProcessedSound(player);
+        if (reportCompleted) {
+            Bukkit.getPluginManager().callEvent(new ConvertorConversionCompletedEvent(player, details));
         }
+
+        playProcessedSound(player);
 
         return conversions;
     }

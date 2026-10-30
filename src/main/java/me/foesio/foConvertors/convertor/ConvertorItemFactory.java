@@ -54,7 +54,11 @@ public final class ConvertorItemFactory {
     }
 
     public ItemStack createConvertorItem(ConvertorTemplate template, boolean enabled) {
-        ItemStack baseItem = template.getDisplayItem();
+        return createConvertorItem(template.getId(), template.getDisplayItem(), enabled);
+    }
+
+    public ItemStack createConvertorItem(String templateId, ItemStack displayItem, boolean enabled) {
+        ItemStack baseItem = FoItemStacks.cloneItem(displayItem);
         if (baseItem.getType().isAir()) {
             baseItem = new ItemStack(Material.CHEST_MINECART);
         }
@@ -68,7 +72,7 @@ public final class ConvertorItemFactory {
         }
 
         if (!meta.hasDisplayName()) {
-            meta.setDisplayName(messages.renderTemplate("{theme}" + prettifyId(template.getId()), java.util.Collections.emptyMap()));
+            meta.setDisplayName(messages.renderTemplate("{theme}" + prettifyId(templateId), java.util.Collections.emptyMap()));
         }
 
         List<String> lore = new ArrayList<>();
@@ -84,7 +88,7 @@ public final class ConvertorItemFactory {
 
         PersistentDataContainer pdc = meta.getPersistentDataContainer();
         pdc.set(convertorMarkerKey, PersistentDataType.BYTE, (byte) 1);
-        pdc.set(templateIdKey, PersistentDataType.STRING, template.getId().toLowerCase(Locale.ROOT));
+        pdc.set(templateIdKey, PersistentDataType.STRING, templateId.toLowerCase(Locale.ROOT));
         pdc.set(enabledKey, PersistentDataType.BYTE, enabled ? (byte) 1 : (byte) 0);
 
         convertorItem.setItemMeta(meta);

@@ -16,6 +16,8 @@ import me.foesio.core.sound.FoEditorSounds;
 import me.foesio.core.sound.FoSoundService;
 import me.foesio.core.update.UpdateNoticeService;
 import me.foesio.foConvertors.command.FoConvertorsCommand;
+import me.foesio.foConvertors.api.FoConvertorsApi;
+import me.foesio.foConvertors.internal.DefaultFoConvertorsApi;
 import me.foesio.foConvertors.config.PluginSettings;
 import me.foesio.foConvertors.convertor.ConversionEngine;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory;
@@ -30,6 +32,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.PluginManager;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.event.HandlerList;
 
@@ -44,6 +47,7 @@ public final class FoConvertors extends JavaPlugin {
     private FoAdminSounds adminSounds;
     private FoEditorSounds editorSounds;
     private UpdateNoticeService updates;
+    private FoConvertorsApi publicApi;
     private boolean removeLegacyMessageConfigPaths;
 
     @Override
@@ -111,17 +115,26 @@ public final class FoConvertors extends JavaPlugin {
         command.setExecutor(commandHandler);
         command.setTabCompleter(commandHandler);
 
+        publicApi = new DefaultFoConvertorsApi(this, registry, itemFactory, settings, autoConvertListener);
+        getServer().getServicesManager().register(FoConvertorsApi.class, publicApi, this, ServicePriority.Normal);
+
         getLogger().info("FoConvertors enabled with " + registry.ids().size() + " loaded convertor templates.");
     }
 
     @Override
     public void onDisable() {
+        if (publicApi != null) {
+            getServer().getServicesManager().unregister(FoConvertorsApi.class, publicApi);
+            publicApi = null;
+        }
         if (core != null) {
             core.close();
             core = null;
         }
-        HandlerList.unregisterAll(updates);
-        updates = null;
+        if (updates != null) {
+            HandlerList.unregisterAll(updates);
+            updates = null;
+        }
     }
 
     private void refreshCoreContext(boolean startup) {

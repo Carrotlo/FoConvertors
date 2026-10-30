@@ -8,6 +8,9 @@ import me.foesio.core.sound.FoSoundService;
 import me.foesio.foConvertors.config.PluginSettings;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory;
 import me.foesio.foConvertors.convertor.ConvertorItemFactory.ConvertorItemData;
+import me.foesio.foConvertors.api.ConvertorItemInfo;
+import me.foesio.foConvertors.event.ConvertorItemToggledEvent;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -109,12 +112,21 @@ public final class ConvertorToggleListener implements Listener {
 
         boolean nowEnabled = !data.enabled();
         ItemStack rebuilt = itemFactory.rebuildWithState(item, data.templateId(), nowEnabled);
+        ConvertorItemData rebuiltData = itemFactory.readConvertorData(rebuilt);
+        if (rebuiltData == null || rebuiltData.enabled() != nowEnabled) {
+            return false;
+        }
         lastToggleMillis.put(uuid, now);
 
         if (hand == EquipmentSlot.HAND) {
             player.getInventory().setItemInMainHand(rebuilt);
         } else {
             player.getInventory().setItemInOffHand(rebuilt);
+        }
+
+        if (ConvertorItemToggledEvent.getHandlerList().getRegisteredListeners().length > 0) {
+            Bukkit.getPluginManager().callEvent(new ConvertorItemToggledEvent(player, hand,
+                    new ConvertorItemInfo(data.templateId(), nowEnabled, true), data.enabled(), rebuilt));
         }
 
         if (settings.isSendToggleMessage()) {
